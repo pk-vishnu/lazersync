@@ -2,6 +2,9 @@
 
 LazerSync is a Python-based client-side visualization tool that generates real-time audio visualizations of given Device_ID and sends control data to a QMK keyboard firmware (LazerCore) via RAW HID. The visualizer uses an LED matrix to dynamically adjust based on the frequency bands of the audio input, providing synchronized RGB_MATRIX.
 
+![Recording 2025-01-16 224056](https://github.com/user-attachments/assets/ca12cc01-f1ae-485b-a1c1-86045b8bfca5)
+
+
 ## Features
 
 - **Real-time Audio Visualization**: 

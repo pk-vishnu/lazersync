@@ -1,6 +1,9 @@
 import numpy as np
 import pyaudio
 import matplotlib.pyplot as plt
+import ctypes
+ctypes.CDLL('../utils/hidapi.dll')
+import hid
 
 # Keyboard Matrix Layout
 keyboard_matrix = [
@@ -19,6 +22,23 @@ for r in range(rows):
     for c in range(cols):
         if keyboard_matrix[r][c] != -1:  # Ignore empty slots
             led_positions.append((c, rows - 1 - r))  # Flip y-axis for correct orientation
+
+#Device info
+VENDOR_ID = 0x342D
+PRODUCT_ID = 0xE484
+USAGE_PAGE = 0xFF60
+USAGE_ID = 0x61
+devices = hid.enumerate(VENDOR_ID, PRODUCT_ID)
+print(devices)
+if len(devices) == 0:
+    print("Device not connected!")
+    exit()
+for device in devices:
+    if device['vendor_id'] == VENDOR_ID and device['product_id'] == PRODUCT_ID and device['usage_page'] == USAGE_PAGE and device['usage'] == USAGE_ID:
+        device_info = device
+
+device_path = device_info['path']
+device = hid.Device(VENDOR_ID, PRODUCT_ID, path=device_path)
 
 # Setup Matplotlib plot
 fig, ax = plt.subplots()
@@ -61,6 +81,56 @@ def compute_fft(audio_data):
     return freqs, np.abs(fft_data)
 
 
+def normalize_amplitudes(amplitudes, audio_data, previous_normalized,max_rows=6, alpha=0.5):
+    # Handle NaN values
+    amplitudes = [amp if not np.isnan(amp) else 0 for amp in amplitudes]
+    audio_data = np.where(np.isnan(audio_data), 0, audio_data)
+
+    # Calculate the maximum amplitude in the current raw audio data
+    max_audio_amplitude = np.max(np.abs(audio_data))
+    max_audio_amplitude = max_audio_amplitude if max_audio_amplitude > 0 else 1e-6
+
+    # Normalize the audio data's maximum amplitude to fit between 0 and max_rows
+    volume_factor = (max_audio_amplitude / (2**15)) * max_rows  # Assuming 16-bit audio
+
+    # Avoid division by zero
+    max_amplitude = max(amplitudes) if max(amplitudes) > 0 else 1e-6
+
+    # Normalize each frequency band's amplitude based on the audio volume
+    normalized = [
+        min(int((amp / max_amplitude) * volume_factor), max_rows) for amp in amplitudes
+    ]
+
+    # Ensure at least the first row lights up if all amplitudes are zero
+    if all(amp == 0 for amp in normalized):
+        normalized = [1] * len(normalized)
+
+    # Smooth transitions using EMA
+    if previous_normalized is not None:
+        normalized = smooth_transitions(normalized, previous_normalized, alpha)
+
+    return normalized
+
+
+def smooth_transitions(new_values, previous_values, alpha=0.5):
+    # Apply exponential moving average (EMA)
+    smoothed = [
+        alpha * new + (1 - alpha) * prev for new, prev in zip(new_values, previous_values)
+    ]
+    return smoothed
+
+
+def interpolate_frames(current_frame, next_frame, steps=5):
+    # Generate intermediate frames between current and next
+    interpolated_frames = []
+    for t in np.linspace(0, 1, steps):
+        interpolated_frame = [
+            int(current * (1 - t) + next * t) for current, next in zip(current_frame, next_frame)
+        ]
+        interpolated_frames.append(interpolated_frame)
+    return interpolated_frames
+
+
 def get_band_amplitudes(freqs, fft_data, bands):
     # Use list comprehension and vectorized numpy operations
     amplitudes = [
@@ -68,34 +138,16 @@ def get_band_amplitudes(freqs, fft_data, bands):
         for band in bands
     ]
     return amplitudes
-def normalize_amplitudes(amplitudes, audio_data, max_rows=6):
-    # Handle NaN values in amplitudes
-    amplitudes = [amp if not np.isnan(amp) else 0 for amp in amplitudes]  # Replace NaNs with 0
-    audio_data = np.where(np.isnan(audio_data), 0, audio_data)  # Replace NaNs with 0 in audio data
-    
-    # Calculate the maximum amplitude in the current raw audio data
-    max_audio_amplitude = np.max(np.abs(audio_data))  # Get peak volume in the current audio chunk
-    
-    # Ensure we're not dividing by zero
-    max_audio_amplitude = max_audio_amplitude if max_audio_amplitude > 0 else 1e-6  # Small value to prevent divide by zero
-    
-    # Normalize the audio data's maximum amplitude to fit between 0 and max_rows
-    volume_factor = (max_audio_amplitude / (2**15)) * max_rows  # Assuming 16-bit audio
-    
-    # Check if all amplitudes are zero to avoid division by zero
-    max_amplitude = max(amplitudes) if max(amplitudes) > 0 else 1e-6  # Avoid division by zero
-    
-    # Normalize each frequency band's amplitude based on the audio volume
-    normalized = [
-        min(int((amp / max_amplitude) * volume_factor), max_rows) for amp in amplitudes
-    ]
-    
-    # Ensure at least the first row lights up if all amplitudes are zero
-    if all(amp == 0 for amp in normalized):
-        normalized = [1] * len(normalized)
-    
-    return normalized
 
+def fade_out(previous_values, new_values, decay_rate=0.8):
+    """
+    Gradually fade out LEDs by applying a decay to previous values.
+    """
+    faded_values = [
+        int(prev * decay_rate) if new < prev else new  # Decay only when the value drops
+        for prev, new in zip(previous_values, new_values)
+    ]
+    return faded_values
 
 
 def update_leds(normalized_amplitudes):
@@ -128,7 +180,7 @@ def update_leds(normalized_amplitudes):
     # Update the LED scatter plot with new colors
     led_scatter.set_color(led_colors)
 
-
+previous_normalized = [0]*len(bands)
 # Real-time visualization loop
 try:
     while True:
@@ -147,15 +199,19 @@ try:
         
         # Handle NaN values in amplitudes
         amplitudes = [amp if not np.isnan(amp) else 0 for amp in amplitudes]  # Replace NaNs with 0
-        
-        normalized_amplitudes = normalize_amplitudes(amplitudes, audio_data)
-        
+        current_normalized = normalize_amplitudes(amplitudes, audio_data, previous_normalized)
+        smoothed_normalized = fade_out(previous_normalized, current_normalized, decay_rate=0.8)
+        report = bytes([0] + [int(x) for x in smoothed_normalized])
+        print("Sending to QMK: ", report)
+        device.write(report)
+        previous_normalized = smoothed_normalized
         # Update the LED visualization with the normalized amplitudes
-        update_leds(normalized_amplitudes)
+        update_leds([int(x) for x in smoothed_normalized])
         plt.pause(0.01)
 
 except KeyboardInterrupt:
     print("Exiting Lazersync...")
     stream.stop_stream()
     stream.close()
+    device.close()
     p.terminate()

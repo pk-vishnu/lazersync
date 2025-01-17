@@ -1,7 +1,9 @@
 import numpy as np
 import pyaudio
 import matplotlib.pyplot as plt
-
+import ctypes
+ctypes.CDLL('../utils/hidapi.dll')
+import hid
 # Keyboard Matrix Layout
 keyboard_matrix = [
     [21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, -1],  # Row 1
@@ -20,13 +22,29 @@ for r in range(rows):
         if keyboard_matrix[r][c] != -1:  # Ignore empty slots
             led_positions.append((c, rows - 1 - r))  # Flip y-axis for correct orientation
 
+#Device info
+VENDOR_ID = 0x342D
+PRODUCT_ID = 0xE484
+USAGE_PAGE = 0xFF60
+USAGE_ID = 0x61
+devices = hid.enumerate(VENDOR_ID, PRODUCT_ID)
+print(devices)
+if len(devices) == 0:
+    print("Device not connected!")
+    exit()
+for device in devices:
+    if device['vendor_id'] == VENDOR_ID and device['product_id'] == PRODUCT_ID and device['usage_page'] == USAGE_PAGE and device['usage'] == USAGE_ID:
+        device_info = device
+
+device_path = device_info['path']
+device = hid.Device(VENDOR_ID, PRODUCT_ID, path=device_path)
+
 # Setup Matplotlib plot
 fig, ax = plt.subplots()
 ax.set_xlim(-1, cols)
 ax.set_ylim(-1, rows)
 ax.set_aspect('equal')
 ax.axis('off')
-plt.title("Lazersync")
 
 # Initialize LED scatter plot
 led_scatter = ax.scatter(
@@ -55,34 +73,71 @@ bands = [
 p = pyaudio.PyAudio()
 stream = p.open(format=pyaudio.paInt16, channels=1, rate=RATE, input=True, frames_per_buffer=CHUNK)
 
-# Frequency data computation
 def compute_fft(audio_data):
+    # Perform FFT and get frequency components
     fft_data = np.fft.rfft(audio_data)
     freqs = np.fft.rfftfreq(len(audio_data), 1 / RATE)
     return freqs, np.abs(fft_data)
 
 
+def normalize_amplitudes(amplitudes, audio_data, max_rows=6, previous_normalized=None, alpha=0.5):
+    # Handle NaN values
+    amplitudes = [amp if not np.isnan(amp) else 0 for amp in amplitudes]
+    audio_data = np.where(np.isnan(audio_data), 0, audio_data)
+
+    # Calculate the maximum amplitude in the current raw audio data
+    max_audio_amplitude = np.max(np.abs(audio_data))
+    max_audio_amplitude = max_audio_amplitude if max_audio_amplitude > 0 else 1e-6
+
+    # Normalize the audio data's maximum amplitude to fit between 0 and max_rows
+    volume_factor = (max_audio_amplitude / (2**15)) * max_rows  # Assuming 16-bit audio
+
+    # Avoid division by zero
+    max_amplitude = max(amplitudes) if max(amplitudes) > 0 else 1e-6
+
+    # Normalize each frequency band's amplitude based on the audio volume
+    normalized = [
+        min(int((amp / max_amplitude) * volume_factor), max_rows) for amp in amplitudes
+    ]
+
+    # Ensure at least the first row lights up if all amplitudes are zero
+    if all(amp == 0 for amp in normalized):
+        normalized = [1] * len(normalized)
+
+    # Smooth transitions using EMA
+    if previous_normalized is not None:
+        normalized = smooth_transitions(normalized, previous_normalized, alpha)
+
+    return normalized
+
+
+def smooth_transitions(new_values, previous_values, alpha=0.5):
+    # Apply exponential moving average (EMA)
+    smoothed = [
+        alpha * new + (1 - alpha) * prev for new, prev in zip(new_values, previous_values)
+    ]
+    return smoothed
+
+
+def interpolate_frames(current_frame, next_frame, steps=5):
+    # Generate intermediate frames between current and next
+    interpolated_frames = []
+    for t in np.linspace(0, 1, steps):
+        interpolated_frame = [
+            int(current * (1 - t) + next * t) for current, next in zip(current_frame, next_frame)
+        ]
+        interpolated_frames.append(interpolated_frame)
+    return interpolated_frames
+
+
 def get_band_amplitudes(freqs, fft_data, bands):
+    # Use list comprehension and vectorized numpy operations
     amplitudes = [
         np.sum(fft_data[(freqs >= band[0]) & (freqs < band[1])])  # Sum FFT values within each band
         for band in bands
     ]
     return amplitudes
-    
-def normalize_amplitudes(amplitudes, max_rows=6):
-    # Avoid division by zero by ensuring the maximum amplitude is never zero
-    max_amplitude = max(amplitudes) if max(amplitudes) > 0 else 1e-6
-    
-    # Normalize amplitudes and clip them to fit within the row limit
-    normalized = [
-        min(int((amp / max_amplitude) * max_rows), max_rows) for amp in amplitudes
-    ]
-    
-    # Ensure at least the first row lights up if all amplitudes are zero
-    if all(amp == 0 for amp in normalized):
-        normalized = [1] * len(normalized)
-    
-    return normalized
+
 
 
 def update_leds(normalized_amplitudes):
@@ -126,16 +181,26 @@ try:
         # Compute FFT to get frequency amplitudes
         freqs, fft_data = compute_fft(audio_data)
         
-        # Get band amplitudes and normalize them
-        amplitudes = get_band_amplitudes(freqs, fft_data, bands)
-        normalized_amplitudes = normalize_amplitudes(amplitudes)
+        # Handle NaN values in FFT data
+        fft_data = np.nan_to_num(fft_data)  # Replace NaNs in FFT data with 0
         
+        # Get band amplitudes and normalize them based on volume
+        amplitudes = get_band_amplitudes(freqs, fft_data, bands)
+        
+        # Handle NaN values in amplitudes
+        amplitudes = [amp if not np.isnan(amp) else 0 for amp in amplitudes]  # Replace NaNs with 0
+        
+        normalized_amplitudes = normalize_amplitudes(amplitudes, audio_data)
+        report = bytes([0] + normalized_amplitudes)
+        print("Sending to QMK: ", report)
+        device.write(report)
         # Update the LED visualization with the normalized amplitudes
         update_leds(normalized_amplitudes)
         plt.pause(0.01)
 
 except KeyboardInterrupt:
-    print("Exiting Lazersync....")
+    print("Exiting Lazersync...")
     stream.stop_stream()
     stream.close()
+    device.close()
     p.terminate()
