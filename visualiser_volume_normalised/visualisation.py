@@ -37,7 +37,14 @@ def update_leds(led_scatter, normalized_amplitudes, col_groups, led_positions, r
                 flipped_row = row
                 if (col, flipped_row) in led_positions:
                     led_index = led_positions.index((col, flipped_row))
-                    led_colors[led_index] = 'red'
+                    if flipped_row==0 or flipped_row==1:
+                        led_colors[led_index] = 'purple'
+                    elif flipped_row==2:
+                        led_colors[led_index] = 'pink'
+                    elif flipped_row==3 or flipped_row==4:
+                        led_colors[led_index] = 'pink'
+                    else:
+                        led_colors[led_index] = 'red'
 
     led_scatter.set_color(led_colors)
     return led_scatter

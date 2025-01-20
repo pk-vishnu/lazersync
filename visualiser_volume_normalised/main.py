@@ -45,9 +45,8 @@ try:
 
         # Update the LED visualization with the normalized amplitudes
         led_scatter = update_leds(led_scatter, [int(x) for x in smoothed_normalized], col_groups, led_positions, len(keyboard_matrix))
-
         plt.pause(0.01)
-
+        
 except KeyboardInterrupt:
     print("Exiting...")
     device.close()
