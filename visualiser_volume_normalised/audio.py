@@ -2,18 +2,18 @@ import numpy as np
 import pyaudio
 
 # Audio Parameters
-CHUNK = 1024
+CHUNK = 700
 RATE = 48000
 device_id = 27
 
 # Frequency band ranges
 bands = [
-    (20, 500),  # Bass 1
-    (500, 2000), # Bass 2
-    (2000, 4000),# Mid 1
-    (4000, 7000), # Mid 2
-    (7000, 9000), # Treble 1
-    (9000, 12000) # Treble 2
+    (20, 150),   # Deep bass
+    (150, 500),  # Bass
+    (500, 1000), # Lower mids
+    (1000, 3000),# Upper mids
+    (3000, 6000),# Treble 1
+    (6000, 12000) # Treble 2
 ]
 
 # Audio Stream Setup
@@ -49,7 +49,7 @@ def normalize_amplitudes(amplitudes, audio_data, previous_normalized, max_rows=6
     return normalized
 
 
-def smooth_transitions(new_values, previous_values, alpha=0.5):
+def smooth_transitions(new_values, previous_values, alpha=0.1):
     """Smoothens the transitions using an exponential moving average."""
     return [alpha * new + (1 - alpha) * prev for new, prev in zip(new_values, previous_values)]
 
@@ -60,7 +60,7 @@ def get_band_amplitudes(freqs, fft_data, bands):
         np.sum(fft_data[(freqs >= band[0]) & (freqs < band[1])]) for band in bands
     ]
 
-def fade_out(previous_values, new_values, decay_rate=0.8):
+def fade_out(previous_values, new_values, decay_rate=0.2):
     """
     Gradually fade out LEDs by applying a decay to previous values.
     """

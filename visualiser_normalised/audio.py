@@ -2,18 +2,18 @@ import numpy as np
 import pyaudio
 
 class AudioProcessor:
-    def __init__(self, chunk_size=1024, rate=48000):
+    def __init__(self, chunk_size=700, rate=48000):
         self.chunk_size = chunk_size
         self.rate = rate
         self.p = pyaudio.PyAudio()
         self.stream = self.p.open(format=pyaudio.paInt16, channels=1, rate=self.rate, input=True, frames_per_buffer=self.chunk_size)
         self.bands = [
-            (20, 500),  # Bass 1
-            (500, 2000), # Bass 2
-            (2000, 4000),# Mid 1
-            (4000, 7000), # Mid 2
-            (7000, 9000), # Treble 1
-            (9000, 12000) # Treble 2
+            (20, 150),   # Deep bass
+            (150, 500),  # Bass
+            (500, 1000), # Lower mids
+            (1000, 3000),# Upper mids
+            (3000, 6000),# Treble 1
+            (6000, 12000) # Treble 2
         ]
 
     def read_audio_data(self):
