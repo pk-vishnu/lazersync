@@ -1,16 +1,16 @@
 import time
 import numpy as np
 import matplotlib.pyplot as plt
-from audio import AudioProcessor
+from audio import AudioProcessor, bands  # Import bands from audio.py
 from led import LEDControl
-from device import HIDDevice
+from device import HIDDevice  # Import the HIDDevice class
 
 # Initialize devices and audio
-device = HIDDevice()
+device = HIDDevice()  # Use the class to initialize the device
 audio_processor = AudioProcessor()
 led_control = LEDControl()
 
-previous_normalized = [0] * 6  # Number of bands
+previous_normalized = [0] * len(bands)  # Use the global bands variable
 decay_rate = 0.8
 
 # Real-time processing loop

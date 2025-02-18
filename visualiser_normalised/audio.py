@@ -1,24 +1,30 @@
 import numpy as np
 import pyaudio
 
+# Define bands globally
+bands = [
+    (20, 150),   # Deep bass
+    (150, 500),  # Bass
+    (500, 1000), # Lower mids
+    (1000, 3000),# Upper mids
+    (3000, 6000),# Treble 1
+    (6000, 12000) # Treble 2
+]
+
 class AudioProcessor:
     def __init__(self, chunk_size=700, rate=48000):
         self.chunk_size = chunk_size
         self.rate = rate
         self.p = pyaudio.PyAudio()
         self.stream = self.p.open(format=pyaudio.paInt16, channels=1, rate=self.rate, input=True, frames_per_buffer=self.chunk_size)
-        self.bands = [
-            (20, 150),   # Deep bass
-            (150, 500),  # Bass
-            (500, 1000), # Lower mids
-            (1000, 3000),# Upper mids
-            (3000, 6000),# Treble 1
-            (6000, 12000) # Treble 2
-        ]
 
     def read_audio_data(self):
-        audio_data = np.frombuffer(self.stream.read(self.chunk_size), dtype=np.int16)
-        return np.where(np.abs(audio_data) < 1000, 0, audio_data)  # Remove small noise
+        try:
+            audio_data = np.frombuffer(self.stream.read(self.chunk_size, exception_on_overflow=False), dtype=np.int16)
+            return np.where(np.abs(audio_data) < 1000, 0, audio_data)  # Remove small noise
+        except OSError as e:
+            print(f"Audio input overflow: {e}")
+            return np.zeros(self.chunk_size, dtype=np.int16)  # Return zeros if overflow occurs
 
     def compute_fft(self, audio_data):
         fft_data = np.fft.rfft(audio_data)
@@ -28,7 +34,7 @@ class AudioProcessor:
     def get_band_amplitudes(self, freqs, fft_data):
         return [
             np.sum(fft_data[(freqs >= band[0]) & (freqs < band[1])]) 
-            for band in self.bands
+            for band in bands  # Use the global bands variable
         ]
 
     def normalize_amplitudes(self, amplitudes, previous_normalized, max_rows=6, alpha=0.5):
