@@ -20,8 +20,13 @@ bands = [
 ]
 
 # Audio Stream Setup
+'''
+use Voicemeeter as middleware (Voicemeeter INPUT)
+Route Audio to Voicemeeter Input/or AUX input and then -> OUTPUT B1 or B2
+Pyaudio stream audio input_device_index should be B1/B2 
+'''
 p = pyaudio.PyAudio()
-stream = p.open(format=pyaudio.paInt16, channels=1, rate=RATE, input=True, frames_per_buffer=CHUNK)
+stream = p.open(input_device_index=12, format=pyaudio.paInt16, channels=1, rate=RATE, input=True, frames_per_buffer=CHUNK)
 
 def whittaker_henderson_smooth(buffer, lambda_=1e-2):
     """Applies Whittaker-Henderson smoothing using a convolution kernel."""    
@@ -80,6 +85,10 @@ class AmplitudeNormalizer:
             # smoothed.append(int(smoothed_value))
             
             # Apply Whittaker-Henderson smoothing using the buffer
+            '''
+            TODO: Remove whittaker, use Exponential Moving Average instead. OR try to apply this to the actual raw FFT amplitude
+            and not the normalized level buffer 
+            '''
             if len(self.buffers[i]) >= self.window_size:
                 smoothed_value = whittaker_henderson_smooth(list(self.buffers[i]))[-1]
             else:

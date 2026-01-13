@@ -1,5 +1,3 @@
 lazersync/
 .vscode/
-audio_visualizer/__pycache__
-visualiser_volume_normalised/__pycache__
-visualiser_normalised/__pycache__
+__pycache__/

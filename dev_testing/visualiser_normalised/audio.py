@@ -11,12 +11,18 @@ bands = [
     (6000, 12000) # Treble 2
 ]
 
+# Audio Stream setup 
+'''
+use Voicemeeter as middleware (Voicemeeter INPUT)
+Route Audio to Voicemeeter Input and then -> OUTPUT B1 or B2
+Pyaudio stream audio input_device_index should be B1/B2 
+'''
 class AudioProcessor:
     def __init__(self, chunk_size=700, rate=48000):
         self.chunk_size = chunk_size
         self.rate = rate
         self.p = pyaudio.PyAudio()
-        self.stream = self.p.open(format=pyaudio.paInt16, channels=1, rate=self.rate, input=True, frames_per_buffer=self.chunk_size)
+        self.stream = self.p.open(input_device_index=12, format=pyaudio.paInt16, channels=1, rate=self.rate, input=True, frames_per_buffer=self.chunk_size)
 
     def read_audio_data(self):
         try:

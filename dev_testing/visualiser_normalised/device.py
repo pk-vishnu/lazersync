@@ -4,7 +4,7 @@ import sys
 
 try:
     if platform.system() == "Windows":
-        ctypes.CDLL('../utils/hidapi.dll')
+        ctypes.CDLL('utils\hidapi.dll')
     elif platform.system() == "Darwin":
         ctypes.CDLL("libhidapi.dylib")  # Update the path to your installation if hidapi 
 except OSError as e:  # Handle missing or incorrect DLL path
@@ -12,7 +12,6 @@ except OSError as e:  # Handle missing or incorrect DLL path
     sys.exit(1)  # Exit if the HIDAPI library fails to load
 
 import hid
-import os
 
 # Device Info
 VENDOR_ID = 0x342D
